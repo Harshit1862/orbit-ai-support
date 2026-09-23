@@ -15,7 +15,7 @@ Orbit is a project-management app for small teams, with an AI support assistant 
 - **Conversation-aware.** Follow-ups like *"and the bigger one?"* use earlier messages. Vague messages get a clarifying question.
 - **Triage.** Every question is classified by category (Billing / Technical / Account / Other) and urgency (Low / Medium / High).
 - **Human handoff, when it's earned.** "Talk to a human" appears once the assistant has had a fair try: after 7 replies if the conversation's most urgent message is High, 8 for Medium, 10 for Low. It turns the conversation into a ticket, and tickets are sorted by AI urgency, so "I was charged twice" is handled before "how do I change my avatar".
-- **Everywhere a customer might ask.** An animated bot launcher (it wiggles and shows a "Need help?" teaser until first opened) sits on the public pages for visitors, where it answers pre-sales questions and hands off by email, and on every app screen for signed-in customers. It opens the chat full screen; **Minimise** keeps the conversation for later, **Close** ends it, and following a link in an answer minimises it so the page shows.
+- **Everywhere a customer might ask.** An animated bot launcher (it wiggles and shows a "Need help?" teaser until first opened) sits on the public pages for visitors, where it answers pre-sales questions and hands off by email, and on every app screen for signed-in customers. It opens as a **full-screen help centre** with the session's conversation history in a sidebar; **Minimise** turns it into a side window next to the page, **Expand** goes back to full screen, and **Close** hides it (conversations are kept). Following a link in an answer switches to the side window so the page is visible.
 
 **The product**
 
@@ -55,7 +55,7 @@ flowchart LR
     L --> G[(Groq<br/>gpt-oss-120b → gpt-oss-20b → qwen3)]
 ```
 
-- **Browser.** One hook, `useSupportChat`, holds all the chat logic: sending, retries, timeouts, the rate-limit countdown and saving to storage. `SupportWidget` is the launcher and the full-screen chat built on it; the public pages (`PublicHelpWidget`) and the app (`HelpWidget`) each supply their own greeting, suggestions and handoff. `OrbitProvider` holds the workspace the server loaded and sends every change to the server.
+- **Browser.** One hook, `useSupportChat`, holds all the chat logic: sending, retries, timeouts, the rate-limit countdown and saving to storage. `SupportWidget` is the launcher, the full-screen help centre (with conversation history) and the side window, built on it; the public pages (`PublicHelpWidget`) and the app (`HelpWidget`) each supply their own greeting, suggestions and handoff. `OrbitProvider` holds the workspace the server loaded and sends every change to the server.
 - **Data and sessions (Postgres on Neon).** Each visitor gets an anonymous session: a random 256-bit ID in an HttpOnly, SameSite=Lax cookie (set by `src/proxy.ts`). The database stores only its SHA-256 hash. The visitor's workspace is one row in the `workspaces` table (`db/schema.sql`), with the whole workspace as JSONB. Every change runs through a Server Function (`src/app/app/actions.ts`) that validates the arguments with zod, applies the pure rules in `lib/orbit/actions.ts`, and saves with optimistic concurrency (a `version` column), so plan limits can't be bypassed and two tabs can't overwrite each other. A daily Vercel Cron job deletes workspaces unused for 7 days.
 - **Server.** Next.js route handlers and Server Functions. Chat requests are checked in order: rate limit, request validation (zod), built-in replies, cache. The chat route then retrieves the relevant FAQs, reads the customer's plan and usage **from their workspace in the database** (the browser only says which page it's on, so a faked plan is ignored), and only then calls the model.
 - **RAG (`lib/rag/`).** `npm run build:index` embeds every FAQ with a local sentence-embedding model (all-MiniLM-L6-v2 via transformers.js) and saves the vectors to `faq-index.json`. At request time only the question is embedded, and a cosine-similarity search returns the top 3 FAQs above a tuned threshold.
@@ -163,7 +163,7 @@ src/
 │   ├── login/                    # Demo login and forgot-password flow
 │   └── page.tsx                  # Landing page
 ├── components/
-│   ├── support/                  # Assistant UI: useSupportChat hook, SupportWidget (launcher + full-screen chat), public widget, shared parts
+│   ├── support/                  # Assistant UI: useSupportChat hook, SupportWidget (launcher, full screen + history, side window), public widget, shared parts
 │   └── orbit/                    # App shell, Help widget, state provider, UI kit
 ├── proxy.ts                      # Gives every visitor an anonymous session cookie
 └── lib/

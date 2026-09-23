@@ -136,12 +136,13 @@ Orbit is now a working product, and every rule in it matches the FAQ exactly:
 - **Tested against the real database in Chrome:** cookie flags, persistence across reload, isolation between two visitors, and the faked-plan check. 39 unit tests.
 - **Bugs caught while switching to async server calls:** clearing a task's assignee sent `undefined`, which doesn't survive the trip to the server (now `null`); and a check `if (!addTask(...))` treated a Promise as the result, so the input never cleared. It compiled, but it was wrong.
 
-## 11. Full-screen assistant instead of a separate help page
+## 11. One assistant, three views (replaces the separate help page)
 
-- **One way to get help.** The separate "Help centre" page and its links are gone; the bot in the corner of every page (homepage, login and app) is the single entry point. Old `/help` links redirect to the homepage.
-- **Opens full screen** with a centred reading column, on desktop and phone.
-- **Minimise vs Close.** Minimise (—) hides the chat and keeps the conversation; Close (×) ends it, so the next chat starts fresh. Escape minimises, and following a link in an answer ("Open Billing →") minimises the chat so the page is visible.
-- **Tested in Chrome:** full-screen size, minimise keeps the chat, close resets it, Escape, link-then-minimise, the `/help` redirect and the login-page bot, with 0 console errors.
+- **Full-screen help centre.** Clicking the bot opens the chat full screen with the **conversation history** on the left ("New conversation" plus every chat this session); on phones the history opens as a drawer.
+- **Side window.** Minimise (—) turns the full screen into a compact window in the corner, next to the page; Expand (⤢) goes back to full screen; Close (×) hides it. Conversations are kept for the browser session.
+- **Smooth navigation.** Escape steps down one level (full → window → closed). Following a link in an answer ("Open Billing →") switches to the side window so the page and the chat are both visible (on a phone it closes).
+- **One entry point.** The separate `/help` page and its links are gone (old links redirect home); the bot is on the homepage, login page and every app screen.
+- **Tested in Chrome:** full-screen size, history switching, minimise/expand/close, Escape, link-to-side-window, phone drawer, with 0 console errors.
 
 ## Known limitations
 

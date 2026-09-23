@@ -78,7 +78,7 @@ In Next.js, **folders become URLs**. `page.tsx` is the page shown at that URL, `
 | File | What it does |
 |---|---|
 | `useSupportChat.ts` | **The heart of the chat in the browser.** A React hook holding all the chat logic: sending, the 2-second gap, the rate-limit countdown, retries, the 8s "slow" notice and 30s timeout, cancelling, saving chats in session storage. Both chat UIs use it |
-| `SupportWidget.tsx` | **The assistant**: the bot launcher (wiggles + "👋 Need help?" teaser until first opened) and the **full-screen chat**, with Minimise (keeps the conversation) and Close (ends it). Shows "Talk to a human" only when `handoff.ts` says the assistant has had enough tries |
+| `SupportWidget.tsx` | **The assistant**: the bot launcher (wiggles + "👋 Need help?" teaser until first opened) the **full-screen help centre** with the conversation history on the left, and the **side window**. Minimise: full screen → side window; Expand: back to full screen; Close: hide (conversations are kept); Escape steps down one level. Shows "Talk to a human" only when `handoff.ts` says the assistant has had enough tries |
 | `PublicHelpWidget.tsx` | The assistant on the **homepage and login page for logged-out visitors**: pre-sales suggestions, no account details, and a pre-filled support email as the handoff |
 | `parts.tsx` | **Shared chat pieces**: message bubble (with "Based on" sources and "Open Billing →" buttons), triage tags, typing indicator, AI avatar, Orbit logo, icons |
 
