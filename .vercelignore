@@ -1,0 +1,7 @@
+# Never upload local secrets; the Groq key is set in Vercel's environment settings instead.
+.env*
+!.env.example
+node_modules
+.next
+.git
+*.tsbuildinfo

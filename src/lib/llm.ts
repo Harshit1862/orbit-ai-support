@@ -16,6 +16,16 @@ const BASE_URL = process.env.LLM_BASE_URL ?? "https://api.groq.com/openai/v1";
 export const CHAT_MODEL = process.env.CHAT_MODEL ?? "openai/gpt-oss-120b";
 // Classification is a simple task, so a smaller, faster model is enough.
 export const TRIAGE_MODEL = process.env.TRIAGE_MODEL ?? "openai/gpt-oss-20b";
+// Groq's free tier limits tokens per minute *per model*. When the chat model's
+// budget is used up, the next model in this list (with its own budget) answers.
+export const CHAT_FALLBACK_MODELS = (process.env.CHAT_FALLBACK_MODELS ?? "openai/gpt-oss-20b,qwen/qwen3.8-27b")
+  .split(",")
+  .map((m) => m.trim())
+  .filter(Boolean);
+
+// A per-minute limit usually frees up within a second or two; waiting that long
+// is better than failing. Longer waits (e.g. a daily limit) move on instead.
+const MAX_RATE_LIMIT_WAIT_MS = 2_500;
 
 const REQUEST_TIMEOUT_MS = 20_000;
 
@@ -35,12 +45,18 @@ export class ConfigError extends Error {}
 export class InvalidModelOutputError extends Error {}
 
 interface JsonCompletionOptions<T> {
-  model: string;
+  /** Models to try in order; later ones are used only if earlier ones are rate-limited. */
+  models: string[];
   system: string;
   messages: { role: "user" | "assistant"; content: string }[];
   schema: z.ZodType<T>;
   maxTokens: number;
   temperature: number;
+  /**
+   * Turns a plain-text reply into a result. Models sometimes answer in plain
+   * text despite JSON mode; accepting that text avoids paying for a retry.
+   */
+  fromPlainText?: (text: string) => T;
 }
 
 /**
@@ -54,20 +70,23 @@ export async function completeJson<T>(opts: JsonCompletionOptions<T>): Promise<T
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     let content: string | null | undefined;
     try {
-      const completion = await getClient().chat.completions.create({
-        model: opts.model,
+      const completion = await createWithFallback(opts.models, (model) => ({
+        model,
         messages: [{ role: "system", content: opts.system }, ...opts.messages],
         response_format: { type: "json_object" },
         max_completion_tokens: opts.maxTokens,
         temperature: opts.temperature,
-        // gpt-oss models are reasoning models; low effort keeps replies fast.
-        ...(opts.model.includes("gpt-oss") ? { reasoning_effort: "low" as const } : {}),
-      });
+        ...reasoningParams(model),
+      }));
       content = completion.choices?.[0]?.message?.content;
+      logUsage(completion.model, completion.usage);
     } catch (err) {
       // Groq rejects JSON-mode output that fails to parse with a 400
       // "json_validate_failed". Treat that as bad output and retry.
       if (err instanceof APIError && err.status === 400 && String(err.code ?? err.message).includes("json_validate_failed")) {
+        const text = (err.error as { failed_generation?: unknown } | undefined)?.failed_generation;
+        const salvaged = typeof text === "string" ? salvagePlainText(text, opts.fromPlainText) : undefined;
+        if (salvaged !== undefined) return salvaged;
         lastProblem = "provider rejected malformed JSON";
         continue;
       }
@@ -82,6 +101,8 @@ export async function completeJson<T>(opts: JsonCompletionOptions<T>): Promise<T
     try {
       json = JSON.parse(content);
     } catch {
+      const salvaged = salvagePlainText(content, opts.fromPlainText);
+      if (salvaged !== undefined) return salvaged;
       lastProblem = "response was not JSON";
       continue;
     }
@@ -91,6 +112,77 @@ export async function completeJson<T>(opts: JsonCompletionOptions<T>): Promise<T
   }
 
   throw new InvalidModelOutputError(lastProblem);
+}
+
+/** Uses a plain-text reply as-is, unless it looks like broken JSON. */
+function salvagePlainText<T>(text: string, fromPlainText?: (text: string) => T): T | undefined {
+  const trimmed = text.trim();
+  if (!fromPlainText || !trimmed || trimmed.startsWith("{")) return undefined;
+  console.warn("[llm] model replied in plain text; using it instead of retrying");
+  return fromPlainText(trimmed);
+}
+
+/**
+ * Hidden reasoning is billed as output tokens, and our tasks (answering from a
+ * short FAQ, picking two labels) need very little of it.
+ */
+function reasoningParams(model: string): Partial<OpenAI.ChatCompletionCreateParamsNonStreaming> {
+  if (model.includes("gpt-oss")) return { reasoning_effort: "low" };
+  // Qwen 3 thinks at length by default; Groq's "none" turns that off.
+  if (model.includes("qwen3")) return { reasoning_effort: "none" };
+  return {};
+}
+
+/**
+ * Sends the request to the first model in `models`. If the provider rate-limits
+ * it, waits briefly and retries once when the wait is short, otherwise moves on
+ * to the next model. Rethrows the last rate-limit error if every model is busy.
+ */
+async function createWithFallback(
+  models: string[],
+  params: (model: string) => OpenAI.ChatCompletionCreateParamsNonStreaming,
+): Promise<OpenAI.ChatCompletion> {
+  let lastError: unknown = new Error("No models configured");
+  for (const model of models) {
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      try {
+        return await getClient().chat.completions.create(params(model));
+      } catch (err) {
+        if (!(err instanceof RateLimitError)) throw err;
+        lastError = err;
+        const waitMs = retryAfterMs(err);
+        if (attempt === 1 && waitMs !== null && waitMs <= MAX_RATE_LIMIT_WAIT_MS) {
+          console.warn(`[llm] ${model} rate-limited, retrying in ${waitMs}ms`);
+          await new Promise((resolve) => setTimeout(resolve, waitMs + 100));
+          continue;
+        }
+        console.warn(`[llm] ${model} rate-limited, trying the next model`);
+        break;
+      }
+    }
+  }
+  throw lastError;
+}
+
+/** How long the provider asked us to wait, from the header or Groq's error text. */
+function retryAfterMs(err: RateLimitError): number | null {
+  const header = Number(err.headers?.get("retry-after"));
+  if (header > 0) return header * 1000;
+  // e.g. "Please try again in 3.42s" or "... in 705ms"
+  const match = /try again in ([\d.]+)(ms|s)\b/.exec(err.message);
+  if (!match) return null;
+  return Math.ceil(Number(match[1]) * (match[2] === "s" ? 1000 : 1));
+}
+
+/** One log line per model call, so token spend is visible while developing. */
+function logUsage(model: string, usage: OpenAI.CompletionUsage | undefined) {
+  if (!usage) return;
+  const reasoning = usage.completion_tokens_details?.reasoning_tokens;
+  console.info(
+    `[llm] ${model}: ${usage.prompt_tokens} in + ${usage.completion_tokens} out` +
+      (reasoning ? ` (${reasoning} reasoning)` : "") +
+      ` = ${usage.total_tokens} tokens`,
+  );
 }
 
 /** Maps any error from an LLM call to a safe, user-friendly API response. */
@@ -105,7 +197,11 @@ export function llmErrorResponse(err: unknown): Response {
     return errorResponse(504, "timeout", "The AI service took too long to respond. Please try again.");
   }
   if (err instanceof RateLimitError) {
-    return errorResponse(429, "provider_rate_limited", "The AI service is busy right now. Please wait a few seconds and try again.");
+    // Pass the provider's wait time on, so the UI can count down instead of guessing.
+    const waitSeconds = Math.max(1, Math.ceil((retryAfterMs(err) ?? 5_000) / 1000));
+    return errorResponse(429, "provider_rate_limited", "The AI service is busy right now. Please wait a few seconds and try again.", {
+      "Retry-After": String(waitSeconds),
+    });
   }
   if (err instanceof AuthenticationError) {
     return errorResponse(500, "config_error", "The assistant is not configured correctly. Please contact the site owner.");
@@ -119,6 +215,10 @@ export function llmErrorResponse(err: unknown): Response {
   return errorResponse(500, "internal_error", "Something went wrong on our side. Please try again.");
 }
 
-export function errorResponse(status: number, code: string, message: string): Response {
-  return Response.json({ error: { code, message } }, { status });
+export function errorResponse(status: number, code: string, message: string, headers?: HeadersInit): Response {
+  return Response.json({ error: { code, message } }, { status, headers });
+}
+
+export function rateLimitedResponse(waitSeconds: number, message: string): Response {
+  return errorResponse(429, "rate_limited", message, { "Retry-After": String(waitSeconds) });
 }

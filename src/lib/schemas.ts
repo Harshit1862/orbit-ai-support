@@ -1,10 +1,13 @@
 // Runtime validation for request bodies and model output.
 import { z } from "zod";
-import { CATEGORIES, URGENCIES } from "./types";
+import { CATEGORIES, MAX_MESSAGE_CHARS, URGENCIES } from "./types";
 
-export const MAX_MESSAGE_CHARS = 2000;
-/** Only the most recent messages are sent to the model, to bound prompt size. */
-export const MAX_HISTORY_MESSAGES = 20;
+/**
+ * Only the most recent messages are sent to the model, to bound prompt size.
+ * Every message sent is paid for again on each turn, and follow-ups rarely
+ * refer back more than a couple of exchanges.
+ */
+export const MAX_HISTORY_MESSAGES = 6;
 
 const chatMessage = z.object({
   role: z.enum(["user", "assistant"]),
@@ -12,6 +15,12 @@ const chatMessage = z.object({
 });
 
 export const ChatRequestSchema = z.object({
+  /**
+   * The app page the question was asked from; sent only by the in-app widget.
+   * It's the only customer detail the browser provides: plan, usage and so on
+   * are read from the database on the server, so they can't be faked.
+   */
+  page: z.string().startsWith("/app").max(100).optional(),
   messages: z
     .array(chatMessage)
     .min(1)

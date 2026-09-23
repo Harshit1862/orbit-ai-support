@@ -13,8 +13,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Nimbus Support Assistant",
-  description: "AI-powered customer support assistant",
+  title: "Orbit · Project management for small teams",
+  description: "Orbit is a project-management app for small teams, with an AI support assistant built in.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
