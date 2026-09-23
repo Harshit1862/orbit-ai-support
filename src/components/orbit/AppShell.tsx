@@ -75,9 +75,6 @@ function Shell({ children }: { children: ReactNode }) {
               <p className="mt-0.5 text-slate-400">Unlimited projects and members.</p>
             </Link>
           )}
-          <Link href="/help" className="block px-3 text-xs text-slate-500 hover:text-slate-300">
-            Help centre ↗
-          </Link>
         </div>
       </aside>
 

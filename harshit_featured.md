@@ -69,14 +69,14 @@ Orbit is now a working product, and every rule in it matches the FAQ exactly:
 
 ## 5. Cleaner, reusable code
 
-- **One chat hook shared by both UIs.** `useSupportChat.ts` holds sending, retries, timeouts, cooldowns and saving to storage. The full-page help centre and the in-app widget both use it, so there's no duplicated logic.
+- **One chat hook shared by both UIs.** `useSupportChat.ts` holds sending, retries, timeouts, cooldowns and saving to storage. Every chat surface uses it, so there's no duplicated logic.
 - **Shared UI pieces.** Message bubbles, triage tags, the typing indicator and the logo live in `src/components/support/parts.tsx`.
 - **All the product's rules in one place.** Plans, prices, limits, refund and invite rules are in `src/lib/orbit/model.ts`.
 - **All the app's actions in one place.** Every action and its validation (upgrade, refund, invite…) is in `src/components/orbit/OrbitProvider.tsx`.
 - **Customer details are validated on the server.** The details sent with each question are checked (zod), labelled as "data, not instructions" in the prompt, and never cached.
 - **Timezone bug fixed.** Dates use the user's local day, not UTC. The export was named with yesterday's date before.
 - **Ticket subject bug fixed.** "Talk to a human" now uses the *latest* question as the subject (what the user is stuck on now), so tickets get the right triage tags.
-- **Code tidied for review.** No duplicated limits, no unused exports, and clearer file names (`HelpCenter.tsx`). Billing renewal logic moved into the pure, testable `model.ts`.
+- **Code tidied for review.** No duplicated limits, no unused exports, and clearer file names. Billing renewal logic moved into the pure, testable `model.ts`.
 
 ## 6. Tested
 
@@ -135,6 +135,13 @@ Orbit is now a working product, and every rule in it matches the FAQ exactly:
 - **See the data:** `npm run db:inspect`, or the Neon console.
 - **Tested against the real database in Chrome:** cookie flags, persistence across reload, isolation between two visitors, and the faked-plan check. 39 unit tests.
 - **Bugs caught while switching to async server calls:** clearing a task's assignee sent `undefined`, which doesn't survive the trip to the server (now `null`); and a check `if (!addTask(...))` treated a Promise as the result, so the input never cleared. It compiled, but it was wrong.
+
+## 11. Full-screen assistant instead of a separate help page
+
+- **One way to get help.** The separate "Help centre" page and its links are gone; the bot in the corner of every page (homepage, login and app) is the single entry point. Old `/help` links redirect to the homepage.
+- **Opens full screen** with a centred reading column, on desktop and phone.
+- **Minimise vs Close.** Minimise (—) hides the chat and keeps the conversation; Close (×) ends it, so the next chat starts fresh. Escape minimises, and following a link in an answer ("Open Billing →") minimises the chat so the page is visible.
+- **Tested in Chrome:** full-screen size, minimise keeps the chat, close resets it, Escape, link-then-minimise, the `/help` redirect and the login-page bot, with 0 console errors.
 
 ## Known limitations
 

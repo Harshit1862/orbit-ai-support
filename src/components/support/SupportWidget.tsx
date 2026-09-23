@@ -1,8 +1,9 @@
 "use client";
 
-// The floating assistant: an animated launcher in the corner that opens a chat
-// panel. Used on the public homepage and inside the Orbit app; each passes in
-// its own greeting, suggested questions and human-handoff form.
+// The assistant: an animated launcher in the corner that opens the chat full
+// screen. "Minimise" hides it and keeps the conversation; "Close" ends the
+// conversation. Used on the public pages and inside the Orbit app; each passes
+// in its own greeting, suggested questions and human-handoff form.
 //
 // "Talk to a human" is offered only after the assistant has had a fair chance
 // to help (see lib/handoff.ts): 7 replies for urgent conversations, 8 for
@@ -62,16 +63,21 @@ export default function SupportWidget({ storageKey, getPage, greeting, suggestio
     if (open && view === "chat") inputRef.current?.focus();
   }, [open, view]);
 
-  // Escape closes the panel.
+  // While the chat is open: Escape minimises it, and the page behind doesn't scroll.
   useEffect(() => {
     if (!open) return;
     const onKey = (e: globalThis.KeyboardEvent) => e.key === "Escape" && setOpen(false);
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    const overflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      document.body.style.overflow = overflow;
+    };
   }, [open]);
 
-  function toggle() {
-    setOpen((o) => !o);
+  function openChat() {
+    setOpen(true);
     setShowTeaser(false);
     setHasOpened(true);
     try {
@@ -79,6 +85,19 @@ export default function SupportWidget({ storageKey, getPage, greeting, suggestio
     } catch {
       // Not remembered; the launcher may shake again on the next page load.
     }
+  }
+
+  /** Hides the chat; the conversation is kept for when it's opened again. */
+  function minimise() {
+    setOpen(false);
+  }
+
+  /** Hides the chat and ends the conversation; the next one starts fresh. */
+  function close() {
+    chat.startNewConversation();
+    setInput("");
+    setView("chat");
+    setOpen(false);
   }
 
   function send(text: string) {
@@ -97,9 +116,9 @@ export default function SupportWidget({ storageKey, getPage, greeting, suggestio
     }
   }
 
-  // On a phone the panel covers the page, so close it when a link is followed.
+  // Following a link in an answer ("Open Billing →") minimises the chat, so the page shows.
   function onNavigate() {
-    if (window.matchMedia("(max-width: 640px)").matches) setOpen(false);
+    minimise();
   }
 
   const waitingHere = pendingId === active.id;
@@ -108,91 +127,89 @@ export default function SupportWidget({ storageKey, getPage, greeting, suggestio
   return (
     <>
       {open && (
-        <div
-          role="dialog"
-          aria-label="Orbit Assist"
-          className="fixed inset-0 z-50 flex origin-bottom-right animate-msg-in flex-col overflow-hidden border-white/10 bg-[#0b0d1a]/95 shadow-2xl shadow-black/60 backdrop-blur-xl sm:inset-auto sm:bottom-28 sm:right-6 sm:h-[min(620px,calc(100dvh-9rem))] sm:w-[400px] sm:rounded-2xl sm:border"
-        >
+        <div role="dialog" aria-modal="true" aria-label="Orbit Assist" className="fixed inset-0 z-50 flex animate-fade-up flex-col bg-[#070812]/98 backdrop-blur-xl">
           {/* Header */}
-          <div className="flex items-center gap-3 border-b border-white/[0.07] bg-gradient-to-r from-indigo-500/10 to-violet-500/10 px-4 py-3">
-            <Logo />
-            <div className="min-w-0 flex-1">
-              <p className="text-sm font-semibold text-white">Orbit Assist</p>
-              <p className="text-xs text-slate-400">{view === "chat" ? "AI answers from our help centre" : "Contact our support team"}</p>
+          <div className="border-b border-white/[0.07] bg-gradient-to-r from-indigo-500/10 to-violet-500/10">
+            <div className="mx-auto flex max-w-3xl items-center gap-3 px-4 py-3">
+              <Logo />
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-semibold text-white">Orbit Assist</p>
+                <p className="text-xs text-slate-400">{view === "chat" ? "AI answers from our help centre" : "Contact our support team"}</p>
+              </div>
+              {view === "chat" && (
+                <HeaderButton
+                  label="New conversation"
+                  icon="M12 5v14M5 12h14"
+                  onClick={() => {
+                    chat.startNewConversation();
+                    setInput("");
+                  }}
+                />
+              )}
+              <HeaderButton label="Minimise (keeps the conversation)" icon="M5 12h14" onClick={minimise} />
+              <HeaderButton label="Close (ends the conversation)" icon="M6 6l12 12M18 6 6 18" onClick={close} />
             </div>
-            {view === "chat" && (
-              <button
-                onClick={() => {
-                  chat.startNewConversation();
-                  setInput("");
-                }}
-                title="New conversation"
-                aria-label="New conversation"
-                className="rounded-lg p-1.5 text-slate-400 transition hover:bg-white/[0.06] hover:text-white"
-              >
-                <Icon className="h-4 w-4" d="M12 5v14M5 12h14" />
-              </button>
-            )}
-            <button onClick={toggle} aria-label="Close help" className="rounded-lg p-1.5 text-slate-400 transition hover:bg-white/[0.06] hover:text-white">
-              <Icon className="h-4 w-4" d="M6 6l12 12M18 6 6 18" />
-            </button>
           </div>
 
           {view === "handoff" ? (
-            renderHandoff(
-              active.messages.filter((m) => m.role === "user").map((m) => m.content),
-              () => setView("chat"),
-            )
+            <div className="mx-auto flex w-full max-w-md flex-1 flex-col">
+              {renderHandoff(
+                active.messages.filter((m) => m.role === "user").map((m) => m.content),
+                () => setView("chat"),
+              )}
+            </div>
           ) : (
             <>
-              <div className="flex-1 space-y-5 overflow-y-auto px-4 py-5">
-                {active.messages.length === 0 && (
-                  <div className="animate-fade-up">
-                    <p className="text-sm text-slate-300">{greeting}</p>
-                    <div className="mt-4 flex flex-col gap-2">
-                      {suggestions.map((q) => (
-                        <button
-                          key={q}
-                          onClick={() => send(q)}
-                          disabled={isPending || isCoolingDown}
-                          className="rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-left text-sm text-slate-300 transition hover:border-indigo-400/40 hover:bg-indigo-500/[0.08] hover:text-white disabled:opacity-50"
-                        >
-                          {q}
-                        </button>
-                      ))}
+              <div className="flex-1 overflow-y-auto">
+                <div className="mx-auto max-w-3xl space-y-5 px-4 py-6">
+                  {active.messages.length === 0 && (
+                    <div className="animate-fade-up">
+                      <p className="text-sm text-slate-300">{greeting}</p>
+                      <div className="mt-4 flex flex-col gap-2">
+                        {suggestions.map((q) => (
+                          <button
+                            key={q}
+                            onClick={() => send(q)}
+                            disabled={isPending || isCoolingDown}
+                            className="rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-left text-sm text-slate-300 transition hover:border-indigo-400/40 hover:bg-indigo-500/[0.08] hover:text-white disabled:opacity-50"
+                          >
+                            {q}
+                          </button>
+                        ))}
+                      </div>
                     </div>
-                  </div>
-                )}
+                  )}
 
-                {active.messages.map((m) => (
-                  <MessageBubble key={m.id} message={m} onNavigate={onNavigate} />
-                ))}
+                  {active.messages.map((m) => (
+                    <MessageBubble key={m.id} message={m} onNavigate={onNavigate} />
+                  ))}
 
-                {waitingHere && <TypingIndicator slow={isSlow} />}
+                  {waitingHere && <TypingIndicator slow={isSlow} />}
 
-                {active.error && (
-                  <div role="alert" className="flex flex-wrap items-center gap-2 rounded-xl border border-red-500/20 bg-red-500/[0.08] px-3 py-2 text-sm text-red-300">
-                    <span className="flex-1">{active.error}</span>
-                    {canRetry && (
-                      <button onClick={chat.retry} className="rounded-lg bg-red-500/90 px-2.5 py-1 text-xs font-medium text-white hover:bg-red-500">
-                        Retry
+                  {active.error && (
+                    <div role="alert" className="flex flex-wrap items-center gap-2 rounded-xl border border-red-500/20 bg-red-500/[0.08] px-3 py-2 text-sm text-red-300">
+                      <span className="flex-1">{active.error}</span>
+                      {canRetry && (
+                        <button onClick={chat.retry} className="rounded-lg bg-red-500/90 px-2.5 py-1 text-xs font-medium text-white hover:bg-red-500">
+                          Retry
+                        </button>
+                      )}
+                    </div>
+                  )}
+
+                  {canHandoff && !waitingHere && (
+                    <div className="flex animate-fade-up items-center gap-2 border-t border-white/[0.06] pt-4 text-xs text-slate-400">
+                      <span>Still stuck?</span>
+                      <button onClick={() => setView("handoff")} className="font-medium text-indigo-300 hover:underline">
+                        Talk to a human
                       </button>
-                    )}
-                  </div>
-                )}
-
-                {canHandoff && !waitingHere && (
-                  <div className="flex animate-fade-up items-center gap-2 border-t border-white/[0.06] pt-4 text-xs text-slate-400">
-                    <span>Still stuck?</span>
-                    <button onClick={() => setView("handoff")} className="font-medium text-indigo-300 hover:underline">
-                      Talk to a human
-                    </button>
-                  </div>
-                )}
-                <div ref={bottomRef} />
+                    </div>
+                  )}
+                  <div ref={bottomRef} />
+                </div>
               </div>
 
-              <form onSubmit={handleSubmit} className="border-t border-white/[0.07] p-3">
+              <form onSubmit={handleSubmit} className="mx-auto w-full max-w-3xl px-4 pb-4 pt-2">
                 <div className="flex items-end gap-2 rounded-xl border border-white/10 bg-black/20 p-1.5 focus-within:border-indigo-400/50">
                   <textarea
                     ref={inputRef}
@@ -233,7 +250,7 @@ export default function SupportWidget({ storageKey, getPage, greeting, suggestio
       {/* Teaser bubble, shown once per session until the launcher is opened */}
       {showTeaser && !open && (
         <div className="fixed bottom-[6.5rem] right-6 z-50 flex max-w-[15rem] origin-bottom-right animate-pop items-start gap-2 rounded-2xl rounded-br-md border border-white/10 bg-[#0f1122]/95 py-2.5 pl-3.5 pr-2 text-sm text-slate-200 shadow-xl shadow-black/40 backdrop-blur-xl">
-          <button onClick={toggle} className="text-left">
+          <button onClick={openChat} className="text-left">
             👋 Need help? Ask me anything
           </button>
           <button onClick={() => setShowTeaser(false)} aria-label="Dismiss" className="rounded p-0.5 text-slate-500 hover:text-slate-200">
@@ -243,18 +260,28 @@ export default function SupportWidget({ storageKey, getPage, greeting, suggestio
       )}
 
       {/* Launcher: a friendly bot face that wiggles until it has been opened */}
-      <button
-        onClick={toggle}
-        aria-label={open ? "Close Orbit Assist" : "Open Orbit Assist"}
-        aria-expanded={open}
-        className={`fixed bottom-6 right-6 z-50 flex h-16 w-16 items-center justify-center rounded-full bg-gradient-to-br from-indigo-500 via-violet-500 to-fuchsia-500 text-white shadow-xl shadow-violet-500/40 ring-4 ring-violet-500/20 transition hover:scale-110 hover:shadow-violet-500/60 active:scale-95 ${
-          open ? "max-sm:hidden" : ""
-        } ${!hasOpened && !open ? "animate-wiggle" : ""}`}
-      >
-        {open ? <Icon className="h-6 w-6" d="M6 9l6 6 6-6" /> : <BotFace />}
-        {isPending && !open && <span className="absolute right-0.5 top-0.5 h-3 w-3 animate-pulse rounded-full border-2 border-[#0b0d1a] bg-emerald-400" />}
-      </button>
+      {!open && (
+        <button
+          onClick={openChat}
+          aria-label="Open Orbit Assist"
+          className={`fixed bottom-6 right-6 z-50 flex h-16 w-16 items-center justify-center rounded-full bg-gradient-to-br from-indigo-500 via-violet-500 to-fuchsia-500 text-white shadow-xl shadow-violet-500/40 ring-4 ring-violet-500/20 transition hover:scale-110 hover:shadow-violet-500/60 active:scale-95 ${
+            hasOpened ? "" : "animate-wiggle"
+          }`}
+        >
+          <BotFace />
+          {/* A minimised conversation that's still waiting for a reply */}
+          {isPending && <span className="absolute right-0.5 top-0.5 h-3 w-3 animate-pulse rounded-full border-2 border-[#0b0d1a] bg-emerald-400" />}
+        </button>
+      )}
     </>
+  );
+}
+
+function HeaderButton({ label, icon, onClick }: { label: string; icon: string; onClick: () => void }) {
+  return (
+    <button onClick={onClick} title={label} aria-label={label} className="rounded-lg p-2 text-slate-400 transition hover:bg-white/[0.06] hover:text-white">
+      <Icon className="h-4 w-4" d={icon} />
+    </button>
   );
 }
 

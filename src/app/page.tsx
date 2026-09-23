@@ -24,9 +24,6 @@ export default function LandingPage() {
           <a href="#pricing" className="hidden px-2 text-slate-400 hover:text-white sm:inline">
             Pricing
           </a>
-          <Link href="/help" className="hidden px-2 text-slate-400 hover:text-white sm:inline">
-            Help centre
-          </Link>
           <Link href="/login" className="px-2 text-slate-300 hover:text-white">
             Log in
           </Link>
@@ -90,11 +87,7 @@ export default function LandingPage() {
       </main>
 
       <footer className="relative border-t border-white/[0.06] py-8 text-center text-sm text-slate-500">
-        Orbit is a demo product.{" "}
-        <Link href="/help" className="text-slate-300 hover:underline">
-          Help centre
-        </Link>{" "}
-        · support@orbit.example
+        Orbit is a demo product · Questions? Ask the assistant in the corner, or email support@orbit.example
       </footer>
 
       <PublicHelpWidget />

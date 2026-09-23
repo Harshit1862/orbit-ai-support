@@ -3,6 +3,10 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   // Hide the floating Next.js "N" badge in dev; compile/runtime errors still show.
   devIndicators: false,
+  // The old full-page help centre was replaced by the assistant in the corner of every page.
+  async redirects() {
+    return [{ source: "/help", destination: "/", permanent: true }];
+  },
   // The chat route embeds questions with onnxruntime-node, which loads its
   // native binary dynamically, so the file tracer misses it. Include only the
   // Linux x64 CPU build that Vercel runs: the package also ships macOS and

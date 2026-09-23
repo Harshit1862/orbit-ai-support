@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState, type FormEvent } from "react";
+import PublicHelpWidget from "@/components/support/PublicHelpWidget";
 import { Logo } from "@/components/support/parts";
 
 const inputClass =
@@ -86,13 +87,9 @@ export default function LoginForm() {
             </div>
           )}
         </div>
-        <p className="mt-6 text-center text-xs text-slate-500">
-          Trouble signing in?{" "}
-          <Link href="/help" className="text-indigo-300 hover:underline">
-            Ask our assistant
-          </Link>
-        </p>
+        <p className="mt-6 text-center text-xs text-slate-500">Trouble signing in? Ask the assistant in the corner.</p>
       </div>
+      <PublicHelpWidget />
     </div>
   );
 }

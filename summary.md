@@ -20,7 +20,7 @@ ai-support-assistant/
 **How a question flows through the files:**
 
 ```
-You type in HelpWidget.tsx / HelpCenter.tsx
+You type in the assistant (SupportWidget.tsx, via HelpWidget.tsx in the app or PublicHelpWidget.tsx on public pages)
   → useSupportChat.ts sends it
   → api/chat/route.ts checks it (rateLimit.ts, schemas.ts, quickReplies.ts, cache.ts)
   → rag/retrieve.ts embeds the question and finds the top matching FAQs in the vector index
@@ -67,7 +67,6 @@ In Next.js, **folders become URLs**. `page.tsx` is the page shown at that URL, `
 ### Other pages
 | File | What it does |
 |---|---|
-| `help/page.tsx` | **Help centre (`/help`)**: the assistant as a full page |
 | `login/page.tsx` | **Login page (`/login`)**: wraps the form in `<Suspense>`, which Next.js requires when a page reads the URL's `?forgot=1` |
 | `login/LoginForm.tsx` | The login form, the "Forgot password?" form and the "Check your email" screen |
 
@@ -79,9 +78,8 @@ In Next.js, **folders become URLs**. `page.tsx` is the page shown at that URL, `
 | File | What it does |
 |---|---|
 | `useSupportChat.ts` | **The heart of the chat in the browser.** A React hook holding all the chat logic: sending, the 2-second gap, the rate-limit countdown, retries, the 8s "slow" notice and 30s timeout, cancelling, saving chats in session storage. Both chat UIs use it |
-| `HelpCenter.tsx` | The **full-page chat UI** for `/help`: collapsible conversation sidebar, example questions, message list, input box |
-| `SupportWidget.tsx` | **The floating assistant**: the bot launcher (wiggles + "👋 Need help?" teaser until first opened) and the chat panel. Shows "Talk to a human" only when `handoff.ts` says the assistant has had enough tries |
-| `PublicHelpWidget.tsx` | The assistant on the **homepage for logged-out visitors**: pre-sales suggestions, no account details, and a pre-filled support email as the handoff |
+| `SupportWidget.tsx` | **The assistant**: the bot launcher (wiggles + "👋 Need help?" teaser until first opened) and the **full-screen chat**, with Minimise (keeps the conversation) and Close (ends it). Shows "Talk to a human" only when `handoff.ts` says the assistant has had enough tries |
+| `PublicHelpWidget.tsx` | The assistant on the **homepage and login page for logged-out visitors**: pre-sales suggestions, no account details, and a pre-filled support email as the handoff |
 | `parts.tsx` | **Shared chat pieces**: message bubble (with "Based on" sources and "Open Billing →" buttons), triage tags, typing indicator, AI avatar, Orbit logo, icons |
 
 ### 📁 `orbit/`: the Orbit app's UI
