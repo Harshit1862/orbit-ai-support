@@ -2,7 +2,7 @@
 
 // The chat logic shared by the full-page help centre and the in-app help
 // widget: conversations, sending, retries, timeouts, rate-limit cooldowns and
-// sessionStorage persistence. The two UIs only differ in how they render it.
+// localStorage persistence. The two UIs only differ in how they render it.
 import { useEffect, useRef, useState } from "react";
 import { MAX_MESSAGE_CHARS, type ApiErrorBody, type ChatResponse, type Conversation, type Message, type Triage } from "@/lib/types";
 
@@ -15,6 +15,16 @@ const MIN_SEND_GAP_MS = 2_000;
 
 function createConversation(): Conversation {
   return { id: crypto.randomUUID(), title: "New conversation", messages: [] };
+}
+
+/** Saved conversations, or null if there are none (or storage is unreadable). */
+function readSaved(raw: string | null): Conversation[] | null {
+  try {
+    const saved = JSON.parse(raw ?? "null");
+    return Array.isArray(saved?.conversations) && saved.conversations.length > 0 ? saved.conversations : null;
+  } catch {
+    return null;
+  }
 }
 
 /** An error whose message is safe to show to the user. */
@@ -71,7 +81,7 @@ export async function classifyMessage(message: string): Promise<Triage | null> {
 }
 
 interface Options {
-  /** sessionStorage key, so each chat surface keeps its own history. */
+  /** localStorage key, so each chat surface keeps its own history. */
   storageKey: string;
   /** The app page the user is on, read at send time (in-app widget only). */
   getPage?: () => string;
@@ -104,36 +114,52 @@ export function useSupportChat({ storageKey, getPage }: Options) {
     return () => clearTimeout(timer);
   }, [cooldown]);
 
-  // Keep the session's conversations across page refreshes (sessionStorage is
-  // cleared when the tab closes, matching "during the current session").
+  // Conversations are kept in localStorage, so they survive closing the tab
+  // and restarting the browser until the user deletes them. Which one is open
+  // is per tab (sessionStorage), so two open tabs don't keep switching each
+  // other's conversation.
+  const activeKey = `${storageKey}:active`;
   useEffect(() => {
     try {
-      const saved = JSON.parse(sessionStorage.getItem(storageKey) ?? "null");
-      if (Array.isArray(saved?.conversations) && saved.conversations.length > 0) {
-        // A classification still loading when the page was refreshed will never arrive.
+      // Before localStorage, history lived in sessionStorage: carry it over once.
+      const saved = readSaved(localStorage.getItem(storageKey)) ?? readSaved(sessionStorage.getItem(storageKey));
+      if (saved) {
+        // A classification still loading when the page was closed will never arrive.
         // eslint-disable-next-line react-hooks/set-state-in-effect -- one-time restore from browser storage after mount
         setConversations(
-          (saved.conversations as Conversation[]).map((c) => ({
+          saved.map((c) => ({
             ...c,
             messages: c.messages.map((m) => (m.role === "user" && m.triage === undefined ? { ...m, triage: null } : m)),
           })),
         );
-        setActiveId(saved.activeId);
+        setActiveId(sessionStorage.getItem(activeKey) ?? saved[0].id);
       }
     } catch {
-      // Corrupt or unavailable storage: start fresh.
+      // Storage unavailable (e.g. blocked cookies): start fresh.
     }
     setRestored(true);
-  }, [storageKey]);
+  }, [storageKey, activeKey]);
 
   useEffect(() => {
     if (!restored) return;
     try {
-      sessionStorage.setItem(storageKey, JSON.stringify({ conversations, activeId }));
+      localStorage.setItem(storageKey, JSON.stringify({ conversations }));
+      sessionStorage.setItem(activeKey, activeId);
     } catch {
-      // Storage full or blocked: the app still works, it just won't survive a refresh.
+      // Storage full or blocked: the app still works, it just won't remember the chats.
     }
-  }, [conversations, activeId, restored, storageKey]);
+  }, [conversations, activeId, restored, storageKey, activeKey]);
+
+  // Another tab changed the history (new message, deleted chat): take its copy,
+  // so this tab doesn't later save an older list over it.
+  useEffect(() => {
+    function onStorage(e: StorageEvent) {
+      if (e.key !== storageKey) return;
+      setConversations(readSaved(e.newValue) ?? [createConversation()]);
+    }
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, [storageKey]);
 
   function updateConversation(id: string, update: (c: Conversation) => Conversation) {
     setConversations((prev) => prev.map((c) => (c.id === id ? update(c) : c)));
@@ -240,14 +266,18 @@ export function useSupportChat({ storageKey, getPage }: Options) {
     return true;
   }
 
-  /** Cancels any in-flight reply and switches to an empty conversation. */
-  function startNewConversation() {
-    // Cancel any in-flight reply; it belongs to the conversation being left.
+  function cancelReply() {
     abortRef.current?.abort();
     abortRef.current = null;
     inFlight.current = false;
     setPendingId(null);
     setIsSlow(false);
+  }
+
+  /** Cancels any in-flight reply and switches to an empty conversation. */
+  function startNewConversation() {
+    // Cancel any in-flight reply; it belongs to the conversation being left.
+    cancelReply();
     setNotice(null);
 
     // Reuse the current conversation if it is still empty.
@@ -255,6 +285,15 @@ export function useSupportChat({ storageKey, getPage }: Options) {
     const fresh = createConversation();
     setConversations((prev) => [fresh, ...prev]);
     setActiveId(fresh.id);
+  }
+
+  /** Deletes a conversation for good; deleting the last one leaves an empty one. */
+  function deleteConversation(id: string) {
+    if (pendingId === id) cancelReply();
+    const remaining = conversations.filter((c) => c.id !== id);
+    const next = remaining.length > 0 ? remaining : [createConversation()];
+    setConversations(next);
+    if (id === active.id) setActiveId(next[0].id);
   }
 
   const lastMessage = active.messages[active.messages.length - 1];
@@ -273,6 +312,7 @@ export function useSupportChat({ storageKey, getPage }: Options) {
     send,
     retry,
     startNewConversation,
+    deleteConversation,
     /** The last message has no reply (failed or cancelled) and may be asked again. */
     canRetry: !isPending && !isCoolingDown && lastMessage?.role === "user",
   };

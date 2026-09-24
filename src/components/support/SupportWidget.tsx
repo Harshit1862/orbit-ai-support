@@ -9,9 +9,9 @@
 // kept either way (for the browser session). Used on the public pages and in
 // the Orbit app; each passes in its own greeting, suggestions and handoff form.
 //
-// "Talk to a human" is offered only after the assistant has had a fair chance
-// to help (see lib/handoff.ts): 7 replies for urgent conversations, 8 for
-// medium and 10 for routine ones.
+// "Talk to a human" (see lib/handoff.ts) is offered straight away when a
+// message is High urgency; otherwise after the assistant has had a fair chance
+// to help: 8 replies for medium and 10 for routine conversations.
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from "react";
 import { Icon, Logo, MessageBubble, TypingIndicator } from "@/components/support/parts";
 import { MAX_INPUT_CHARS, useSupportChat } from "@/components/support/useSupportChat";
@@ -24,6 +24,7 @@ type Mode = "closed" | "full" | "window";
 
 const ICONS = {
   plus: "M12 5v14M5 12h14",
+  trash: "M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3",
   close: "M6 6l12 12M18 6 6 18",
   minimise: "M5 12h14",
   expand: "M4 14v6h6M20 10V4h-6M4 20l7-7M20 4l-7 7",
@@ -33,7 +34,7 @@ const ICONS = {
 };
 
 interface Props {
-  /** sessionStorage key for this widget's conversations. */
+  /** localStorage key for this widget's conversations. */
   storageKey: string;
   /** The current app page, sent with each question (signed-in app only). */
   getPage?: () => string;
@@ -123,6 +124,11 @@ export default function SupportWidget({ storageKey, getPage, greeting, suggestio
     chat.setActiveId(id);
     setView("chat");
     setHistoryOpen(false);
+  }
+
+  function deleteConversation(id: string, title: string) {
+    if (!window.confirm(`Delete "${title}"? This can't be undone.`)) return;
+    chat.deleteConversation(id);
   }
 
   function send(text: string) {
@@ -261,21 +267,36 @@ export default function SupportWidget({ storageKey, getPage, greeting, suggestio
           New conversation
         </button>
       </div>
-      <p className="px-4 pb-1 text-[11px] font-medium uppercase tracking-[0.14em] text-slate-500">This session</p>
+      <p className="px-4 pb-1 text-[11px] font-medium uppercase tracking-[0.14em] text-slate-500">Your conversations</p>
       <nav aria-label="Conversation history" className="flex-1 space-y-1 overflow-y-auto px-2 pb-4">
         {conversations.map((c) => (
-          <button
+          <div
             key={c.id}
-            onClick={() => selectConversation(c.id)}
-            aria-current={c.id === active.id ? "true" : undefined}
-            className={`flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm transition ${
+            className={`group flex items-center rounded-lg transition ${
               c.id === active.id ? "bg-white/[0.07] text-white" : "text-slate-400 hover:bg-white/[0.04] hover:text-slate-200"
             }`}
           >
-            <Icon className="h-4 w-4 shrink-0 opacity-60" d={ICONS.chat} />
-            <span className="truncate">{c.title}</span>
-            {pendingId === c.id && <span className="ml-auto h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-indigo-400" />}
-          </button>
+            <button
+              onClick={() => selectConversation(c.id)}
+              aria-current={c.id === active.id ? "true" : undefined}
+              className="flex min-w-0 flex-1 items-center gap-2 px-3 py-2 text-left text-sm"
+            >
+              <Icon className="h-4 w-4 shrink-0 opacity-60" d={ICONS.chat} />
+              <span className="truncate">{c.title}</span>
+              {pendingId === c.id && <span className="ml-auto h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-indigo-400" />}
+            </button>
+            {/* An empty conversation has nothing to delete. */}
+            {c.messages.length > 0 && (
+              <button
+                onClick={() => deleteConversation(c.id, c.title)}
+                aria-label={`Delete conversation: ${c.title}`}
+                title="Delete conversation"
+                className="mr-1 shrink-0 rounded-md p-1.5 text-slate-500 opacity-100 transition hover:bg-red-500/10 hover:text-red-400 focus-visible:opacity-100 md:opacity-0 md:group-hover:opacity-100"
+              >
+                <Icon className="h-4 w-4" d={ICONS.trash} />
+              </button>
+            )}
+          </div>
         ))}
       </nav>
     </>

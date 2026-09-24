@@ -25,7 +25,7 @@ This file lists every improvement made to this project, what problem each one so
 
 ### Using fewer tokens
 - **Built-in replies for simple messages.** "hi", "thanks" and single characters like "w" get an instant reply without calling the AI. That saves about 1,300 tokens each. (`src/lib/quickReplies.ts`)
-- **Answer cache.** Repeated opening questions and triage results are remembered for an hour, so the example-question buttons cost 0 tokens after the first click. (`src/lib/cache.ts`)
+- **Saved answers (Postgres).** Answers to opening questions and triage results are saved in the `saved_answers` table for an hour, so the example-question buttons cost 0 tokens after the first click. (`src/lib/server/savedAnswers.ts`)
 - **Shorter system prompt.** Same rules, fewer words, which saves tokens on every question.
 - **Less history sent.** The last 6 messages instead of 20, so long chats don't keep getting more expensive.
 - **Smaller `max_tokens` limit.** 1500 → 400 for chat and 400 → 200 for triage. Stops runaway answers, and stops Qwen being blocked.
@@ -73,7 +73,7 @@ Orbit is now a working product, and every rule in it matches the FAQ exactly:
 - **Shared UI pieces.** Message bubbles, triage tags, the typing indicator and the logo live in `src/components/support/parts.tsx`.
 - **All the product's rules in one place.** Plans, prices, limits, refund and invite rules are in `src/lib/orbit/model.ts`.
 - **All the app's actions in one place.** Every action and its validation (upgrade, refund, invite…) is in `src/components/orbit/OrbitProvider.tsx`.
-- **Customer details are validated on the server.** The details sent with each question are checked (zod), labelled as "data, not instructions" in the prompt, and never cached.
+- **Customer details are validated on the server.** The details sent with each question are checked (zod), labelled as "data, not instructions" in the prompt, and never saved for reuse.
 - **Timezone bug fixed.** Dates use the user's local day, not UTC. The export was named with yesterday's date before.
 - **Ticket subject bug fixed.** "Talk to a human" now uses the *latest* question as the subject (what the user is stuck on now), so tickets get the right triage tags.
 - **Code tidied for review.** No duplicated limits, no unused exports, and clearer file names. Billing renewal logic moved into the pure, testable `model.ts`.
@@ -84,7 +84,7 @@ Orbit is now a working product, and every rule in it matches the FAQ exactly:
   - prices and plan limits
   - invite expiry and the refund window
   - renewals, downgrades and cancellations
-  - the rate limiter, the cache and built-in replies
+  - the rate limiter, question normalisation and built-in replies
   - request validation
 - Typecheck (`npm run typecheck`), lint and a production build all pass.
 - Every page loads (HTTP 200).
@@ -116,7 +116,7 @@ Orbit is now a working product, and every rule in it matches the FAQ exactly:
 
 ## 9. Smarter handoff and an assistant that gets noticed
 
-- **"Talk to a human" is earned.** It appears only after the assistant has had a fair try: **7 replies if the conversation is High urgency, 8 for Medium, 10 for Low**. The most urgent triage tag in the chat decides, so an urgent message brings the option forward straight away. (`src/lib/handoff.ts`, unit-tested)
+- **"Talk to a human" when it's needed.** It appears **straight away if any message is High urgency**; otherwise after the assistant has had a fair try: **8 replies for Medium, 10 for Low**. The most urgent triage tag in the chat decides. (`src/lib/handoff.ts`, unit-tested)
 - **New launcher.** A round bot-face button that wiggles every few seconds and shows a "👋 Need help? Ask me anything" teaser, until the visitor opens it once. It respects the reduced-motion setting.
 - **On the homepage too.** Logged-out visitors get the assistant with pre-sales suggestions. With no account, it sends no customer details and hands off with a pre-filled email to support instead of an in-app ticket.
 - **One shared widget.** `SupportWidget` holds the launcher, panel and handoff rule; the homepage and the app only pass in their greeting, suggestions and handoff form.
@@ -138,7 +138,7 @@ Orbit is now a working product, and every rule in it matches the FAQ exactly:
 
 ## 11. One assistant, three views (replaces the separate help page)
 
-- **Full-screen help centre.** Clicking the bot opens the chat full screen with the **conversation history** on the left ("New conversation" plus every chat this session); on phones the history opens as a drawer.
+- **Full-screen help centre.** Clicking the bot opens the chat full screen with the **conversation history** on the left ("New conversation" plus every saved chat, kept in the browser until deleted with the trash icon); on phones the history opens as a drawer.
 - **Side window.** Minimise (—) turns the full screen into a compact window in the corner, next to the page; Expand (⤢) goes back to full screen; Close (×) hides it. Conversations are kept for the browser session.
 - **Smooth navigation.** Escape steps down one level (full → window → closed). Following a link in an answer ("Open Billing →") switches to the side window so the page and the chat are both visible (on a phone it closes).
 - **One entry point.** The separate `/help` page and its links are gone (old links redirect home); the bot is on the homepage, login page and every app screen.
@@ -147,7 +147,7 @@ Orbit is now a working product, and every rule in it matches the FAQ exactly:
 ## Known limitations
 
 - **Anonymous sessions, not real accounts.** Each browser gets its own 7-day demo workspace; real sign-in would replace the random cookie.
-- **The rate limiter and cache live in server memory.** On serverless hosting, a shared store such as Redis would be needed.
+- **The rate limiter lives in server memory.** On serverless hosting, a shared store such as Redis would be needed. (Saved answers are already shared, in Postgres.)
 - **Free-tier daily token limits still apply.** Roughly 150–200 questions per model per day.
 - **The backup models can give weaker answers** than `gpt-oss-120b`.
 - **No automated evaluation of answer quality** yet (a labelled question set with scored answers).

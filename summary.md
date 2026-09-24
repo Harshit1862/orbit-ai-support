@@ -22,7 +22,7 @@ ai-support-assistant/
 ```
 You type in the assistant (SupportWidget.tsx, via HelpWidget.tsx in the app or PublicHelpWidget.tsx on public pages)
   → useSupportChat.ts sends it
-  → api/chat/route.ts checks it (rateLimit.ts, schemas.ts, quickReplies.ts, cache.ts)
+  → api/chat/route.ts checks it (rateLimit.ts, schemas.ts, quickReplies.ts, server/savedAnswers.ts)
   → rag/retrieve.ts embeds the question and finds the top matching FAQs in the vector index
   → llm.ts asks the AI, using prompts.ts + only the retrieved FAQs
   → the answer comes back and is shown by parts.tsx
@@ -45,7 +45,7 @@ In Next.js, **folders become URLs**. `page.tsx` is the page shown at that URL, `
 ### 📁 `api/`: the backend (runs on the server, never in the browser)
 | File | What it does |
 |---|---|
-| `api/chat/route.ts` | **The assistant's brain entry point (`POST /api/chat`)**. In order: rate limit → validate the request → built-in reply? → cached answer? → **retrieve the relevant FAQs (RAG)** → build the prompt (+ customer details) → call the AI → attach source links → cache → reply |
+| `api/chat/route.ts` | **The assistant's brain entry point (`POST /api/chat`)**. In order: rate limit → validate the request → built-in reply? → saved answer? → **retrieve the relevant FAQs (RAG)** → build the prompt (+ customer details) → call the AI → attach source links → save the answer → reply |
 | `api/classify/route.ts` | **Triage endpoint (`POST /api/classify`)**. Tags a message with a category (Billing / Technical / Account / Other) and urgency (Low / Medium / High), using the smaller AI model |
 
 ### 📁 `app/`: the Orbit product (everything under `/app`)
@@ -102,9 +102,10 @@ In Next.js, **folders become URLs**. `page.tsx` is the page shown at that URL, `
 | `prompts.ts` | **The AI's instructions.** The chat system prompt (9 rules + only the retrieved FAQs + the JSON format), the customer-details block, and the triage prompt |
 | `faqs.ts` | **The knowledge base**: 10 FAQs (refunds, pricing, 2FA…), each with a link to the screen where it's done in the app |
 | `schemas.ts` | **Validation rules (zod)** for what the browser may send (message length, roles, customer details) and what the AI must return (answer + FAQ ids, category + urgency) |
-| `handoff.ts` | **When a human is offered**: after 7 bot replies for High urgency, 8 for Medium, 10 for Low (the most urgent message in the chat decides) |
+| `handoff.ts` | **When a human is offered**: straight away for High urgency, after 8 bot replies for Medium, 10 for Low (the most urgent message in the chat decides) |
 | `quickReplies.ts` | **Answers without calling the AI**: "hi", "thanks" and single characters like "w". Saves about 1,300 tokens each time |
-| `cache.ts` | **1-hour memory of answers**, so repeated questions cost 0 tokens. Also `normalizeQuestion()`, so "Refund?" and "refund" count as the same question |
+| `questions.ts` | `normalizeQuestion()`, so "Refund?" and "refund" count as the same question |
+| `server/savedAnswers.ts` | **Answers saved in Postgres for an hour** (`saved_answers` table), so repeated questions cost 0 tokens |
 | `rateLimit.ts` | **Spam protection**: max 15 requests/minute per user, and it works out how many seconds to wait (sent as `Retry-After`) |
 | `types.ts` | **Shared TypeScript types** used by both browser and server: Message, Conversation, Triage, Source, ChatContext, the 2,000-character limit |
 
@@ -128,7 +129,7 @@ In Next.js, **folders become URLs**. `page.tsx` is the page shown at that URL, `
 |---|---|
 | `orbit/model.test.ts` | Prices, plan limits, invite expiry, refund window, renewals, downgrades, cancellations |
 | `rateLimit.test.ts` | Allows up to the limit, gives the right wait time, resets after a minute, counts each user separately |
-| `cache.test.ts` | Similar questions match; cached answers expire after an hour |
+| `questions.test.ts` | Similar questions count as the same question |
 | `quickReplies.test.ts` | Greetings and single characters are answered locally; real questions and "no" go to the AI |
 | `schemas.test.ts` | Rejects empty and over-long messages, a conversation ending on a bot message, and bad customer details; normalises triage labels |
 | `handoff.test.ts` | "Talk to a human" appears after exactly 7/8/10 replies, and sooner as soon as an urgent message arrives |

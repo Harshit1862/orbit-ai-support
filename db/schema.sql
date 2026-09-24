@@ -21,3 +21,17 @@ CREATE TABLE IF NOT EXISTS workspaces (
 );
 
 CREATE INDEX IF NOT EXISTS workspaces_last_seen_at_idx ON workspaces (last_seen_at);
+
+-- Model answers saved for an hour (src/lib/server/savedAnswers.ts), so a
+-- repeated question is answered from here for 0 tokens. `question_hash` is a
+-- SHA-256 of the normalised question, short enough to index whatever its length.
+CREATE TABLE IF NOT EXISTS saved_answers (
+  kind           text        NOT NULL, -- 'chat' or 'triage'
+  question_hash  text        NOT NULL,
+  value          jsonb       NOT NULL,
+  expires_at     timestamptz NOT NULL,
+  PRIMARY KEY (kind, question_hash)
+);
+
+-- Expired rows are deleted by the daily clean-up job.
+CREATE INDEX IF NOT EXISTS saved_answers_expires_at_idx ON saved_answers (expires_at);

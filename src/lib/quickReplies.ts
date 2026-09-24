@@ -1,7 +1,7 @@
 // Messages that don't need a model at all. Answering them locally saves a full
 // request (about 1,000 tokens) each time.
 import type { Triage } from "./types";
-import { normalizeQuestion } from "./cache";
+import { normalizeQuestion } from "./questions";
 
 const GREETINGS = new Set(["hi", "hello", "hey", "hii", "yo", "good morning", "good afternoon", "good evening"]);
 const THANKS = new Set(["thanks", "thank you", "thx", "ty", "ok thanks", "ok thank you", "great thanks"]);

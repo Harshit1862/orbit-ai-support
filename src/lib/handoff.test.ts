@@ -21,9 +21,9 @@ describe("conversationUrgency", () => {
 });
 
 describe("repliesUntilHandoff", () => {
-  it("offers a human after 7 replies for High, 8 for Medium and 10 for Low urgency", () => {
-    expect(repliesUntilHandoff(conversation(6, "High"))).toBe(1);
-    expect(repliesUntilHandoff(conversation(7, "High"))).toBe(0);
+  it("offers a human at once for High urgency, after 8 replies for Medium and 10 for Low", () => {
+    expect(repliesUntilHandoff([user("High")])).toBe(0);
+    expect(repliesUntilHandoff(conversation(1, "High"))).toBe(0);
     expect(repliesUntilHandoff(conversation(7, "Medium"))).toBe(1);
     expect(repliesUntilHandoff(conversation(8, "Medium"))).toBe(0);
     expect(repliesUntilHandoff(conversation(9, "Low"))).toBe(1);

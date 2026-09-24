@@ -1,9 +1,10 @@
-// When "Talk to a human" is offered. The assistant gets a fair chance to solve
-// the problem first; urgent problems reach a person sooner.
+// When "Talk to a human" is offered. For routine problems the assistant gets a
+// fair chance to solve them first; a High-urgency problem (locked out, charged
+// wrongly, losing data) is offered a person straight away.
 import type { Message, Urgency } from "./types";
 
 /** Assistant replies needed before the handoff is offered, by urgency. */
-export const HANDOFF_AFTER_REPLIES: Record<Urgency, number> = { High: 7, Medium: 8, Low: 10 };
+export const HANDOFF_AFTER_REPLIES: Record<Urgency, number> = { High: 0, Medium: 8, Low: 10 };
 
 const RANK: Record<Urgency, number> = { Low: 0, Medium: 1, High: 2 };
 

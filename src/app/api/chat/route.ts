@@ -1,4 +1,3 @@
-import { normalizeQuestion, TtlCache } from "@/lib/cache";
 import { FAQS } from "@/lib/faqs";
 import { CHAT_FALLBACK_MODELS, CHAT_MODEL, completeJson, errorResponse, llmErrorResponse, rateLimitedResponse } from "@/lib/llm";
 import { chatContextFor, workspaceNow } from "@/lib/orbit/model";
@@ -7,13 +6,14 @@ import { quickReply } from "@/lib/quickReplies";
 import { retrieveFaqs } from "@/lib/rag/retrieve";
 import { clientKey, rateLimitWaitSeconds } from "@/lib/rateLimit";
 import { ChatReplySchema, ChatRequestSchema, MAX_HISTORY_MESSAGES } from "@/lib/schemas";
+import { SavedAnswers } from "@/lib/server/savedAnswers";
 import { currentWorkspace } from "@/lib/server/workspaces";
 import type { ChatResponse, Source } from "@/lib/types";
 
 export const maxDuration = 60;
 
 // Answers to opening questions, which don't depend on earlier messages.
-const firstAnswerCache = new TtlCache<ChatResponse>();
+const savedAnswers = new SavedAnswers<ChatResponse>("chat");
 
 export async function POST(request: Request) {
   const waitSeconds = rateLimitWaitSeconds(`chat:${clientKey(request)}`, 15);
@@ -40,13 +40,13 @@ export async function POST(request: Request) {
   const quick = quickReply(question);
   if (quick) return Response.json({ reply: quick.reply, sources: [] } satisfies ChatResponse);
 
-  // Only a conversation's first question can be cached: later answers depend on
-  // the earlier messages ("and the bigger one?"). Answers personalised with
-  // customer context aren't cached either.
+  // Only a conversation's first question can reuse a saved answer: later
+  // answers depend on the earlier messages ("and the bigger one?"). Answers
+  // personalised with customer context aren't saved either.
   const { page } = parsed.data;
-  const cacheKey = parsed.data.messages.length === 1 && !page ? normalizeQuestion(question) : null;
-  const cached = cacheKey ? firstAnswerCache.get(cacheKey) : undefined;
-  if (cached) return Response.json(cached);
+  const reusable = parsed.data.messages.length === 1 && !page;
+  const saved = reusable ? await savedAnswers.get(question) : undefined;
+  if (saved) return Response.json(saved);
 
   // Retrieval: only the FAQs related to the question go into the prompt.
   const faqs = await findRelevantFaqs(messages.filter((m) => m.role === "user").map((m) => m.content));
@@ -76,7 +76,7 @@ export async function POST(request: Request) {
     });
 
     const response: ChatResponse = { reply: reply.answer, sources };
-    if (cacheKey) firstAnswerCache.set(cacheKey, response);
+    if (reusable) await savedAnswers.save(question, response);
     return Response.json(response);
   } catch (err) {
     return llmErrorResponse(err);

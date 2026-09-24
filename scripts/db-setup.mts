@@ -20,4 +20,5 @@ const statements = schema
 for (const statement of statements) await sql.query(statement);
 
 const [{ count }] = await sql`SELECT count(*)::int AS count FROM workspaces`;
-console.log(`Database ready: table "workspaces" exists and holds ${count} workspace(s).`);
+const [{ saved }] = await sql`SELECT count(*)::int AS saved FROM saved_answers`;
+console.log(`Database ready: "workspaces" holds ${count} workspace(s), "saved_answers" holds ${saved} saved answer(s).`);

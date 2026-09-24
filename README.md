@@ -14,8 +14,8 @@ Orbit is a project-management app for small teams, with an AI support assistant 
 - **Answers lead to action.** Each FAQ links to the screen where it's done ("Open Billing →").
 - **Conversation-aware.** Follow-ups like *"and the bigger one?"* use earlier messages. Vague messages get a clarifying question.
 - **Triage.** Every question is classified by category (Billing / Technical / Account / Other) and urgency (Low / Medium / High).
-- **Human handoff, when it's earned.** "Talk to a human" appears once the assistant has had a fair try: after 7 replies if the conversation's most urgent message is High, 8 for Medium, 10 for Low. It turns the conversation into a ticket, and tickets are sorted by AI urgency, so "I was charged twice" is handled before "how do I change my avatar".
-- **Everywhere a customer might ask.** An animated bot launcher (it wiggles and shows a "Need help?" teaser until first opened) sits on the public pages for visitors, where it answers pre-sales questions and hands off by email, and on every app screen for signed-in customers. It opens as a **full-screen help centre** with the session's conversation history in a sidebar; **Minimise** turns it into a side window next to the page, **Expand** goes back to full screen, and **Close** hides it (conversations are kept). Following a link in an answer switches to the side window so the page is visible.
+- **Human handoff, when it's needed.** "Talk to a human" appears straight away when any message is tagged High urgency (locked out, charged wrongly, losing data). Otherwise the assistant gets a fair try first: 8 replies for Medium, 10 for Low. It turns the conversation into a ticket, and tickets are sorted by AI urgency, so "I was charged twice" is handled before "how do I change my avatar".
+- **Everywhere a customer might ask.** An animated bot launcher (it wiggles and shows a "Need help?" teaser until first opened) sits on the public pages for visitors, where it answers pre-sales questions and hands off by email, and on every app screen for signed-in customers. It opens as a **full-screen help centre** with the visitor's conversation history in a sidebar (saved in the browser until they delete it); **Minimise** turns it into a side window next to the page, **Expand** goes back to full screen, and **Close** hides it (conversations are kept). Following a link in an answer switches to the side window so the page is visible.
 
 **The product**
 
@@ -48,7 +48,7 @@ flowchart LR
     A -- customer context --> W
     W -- POST /api/chat --> C[Chat route]
     W -- POST /api/classify --> T[Triage route]
-    C --> S{{rate limit → validate →<br/>quick reply → cache}}
+    C --> S{{rate limit → validate →<br/>quick reply → saved answer}}
     T --> S
     S -- question --> R[Retrieval<br/>embed with MiniLM → top-3 from FAQ vector index]
     R -- retrieved FAQs<br/>+ context + history --> L[llm.ts<br/>retry · fallback · JSON validation]
@@ -57,7 +57,7 @@ flowchart LR
 
 - **Browser.** One hook, `useSupportChat`, holds all the chat logic: sending, retries, timeouts, the rate-limit countdown and saving to storage. `SupportWidget` is the launcher, the full-screen help centre (with conversation history) and the side window, built on it; the public pages (`PublicHelpWidget`) and the app (`HelpWidget`) each supply their own greeting, suggestions and handoff. `OrbitProvider` holds the workspace the server loaded and sends every change to the server.
 - **Data and sessions (Postgres on Neon).** Each visitor gets an anonymous session: a random 256-bit ID in an HttpOnly, SameSite=Lax cookie (set by `src/proxy.ts`). The database stores only its SHA-256 hash. The visitor's workspace is one row in the `workspaces` table (`db/schema.sql`), with the whole workspace as JSONB. Every change runs through a Server Function (`src/app/app/actions.ts`) that validates the arguments with zod, applies the pure rules in `lib/orbit/actions.ts`, and saves with optimistic concurrency (a `version` column), so plan limits can't be bypassed and two tabs can't overwrite each other. A daily Vercel Cron job deletes workspaces unused for 7 days.
-- **Server.** Next.js route handlers and Server Functions. Chat requests are checked in order: rate limit, request validation (zod), built-in replies, cache. The chat route then retrieves the relevant FAQs, reads the customer's plan and usage **from their workspace in the database** (the browser only says which page it's on, so a faked plan is ignored), and only then calls the model.
+- **Server.** Next.js route handlers and Server Functions. Chat requests are checked in order: rate limit, request validation (zod), built-in replies, saved answers (Postgres). The chat route then retrieves the relevant FAQs, reads the customer's plan and usage **from their workspace in the database** (the browser only says which page it's on, so a faked plan is ignored), and only then calls the model.
 - **RAG (`lib/rag/`).** `npm run build:index` embeds every FAQ with a local sentence-embedding model (all-MiniLM-L6-v2 via transformers.js) and saves the vectors to `faq-index.json`. At request time only the question is embedded, and a cosine-similarity search returns the top 3 FAQs above a tuned threshold.
 - **LLM layer (`lib/llm.ts`).** The OpenAI SDK pointed at Groq's OpenAI-compatible API. It forces JSON output, validates it with zod, retries once on bad output, and falls back to another model when one is rate-limited. The API key stays on the server.
 
@@ -73,11 +73,11 @@ flowchart LR
 | **Follow-up aware retrieval** | "and the bigger one?" is also searched together with the previous question, and each FAQ keeps its best score. |
 | **Graceful degradation** | If the embedding model can't load, the route falls back to the full knowledge base instead of failing. The library is imported lazily so a load failure can't take the route down. |
 | **Structured output** (`{"answer", "faq_ids"}` in JSON mode, validated with zod) | The UI can never show a made-up source: unknown `faq_ids` are dropped. A malformed reply becomes a handled error, not a crash. |
-| **Customer context labelled "data, not instructions"** | Personalises answers without letting details sent from the browser act as a prompt injection. Personalised answers are never cached. |
+| **Customer context labelled "data, not instructions"** | Personalises answers without letting details sent from the browser act as a prompt injection. Personalised answers are never saved for reuse. |
 | **Prompt rules tied to requirements** | Facts only from the knowledge base; "I don't know" plus a handoff; one clarifying question for vague input; stay on topic; never ask for secrets; treat user text as a question, not an instruction. |
 | **A separate, smaller model for triage** | Classification is easy, so `gpt-oss-20b` is faster and uses a separate rate-limit budget. If triage fails, the tags are simply hidden and the chat is unaffected. |
 | **Model fallback chain** | Groq's free tier limits tokens per minute *per model*. Short waits (≤2.5s) are waited out; longer ones move to the next model. In a stress test, 20 questions were answered without a single rate-limit error. |
-| **Token budget** | Built-in replies for greetings and single characters (0 tokens), a 1-hour cache for opening questions and triage, only the last 6 messages sent, low or no hidden reasoning, and a token log for every call. |
+| **Token budget** | Built-in replies for greetings and single characters (0 tokens), opening questions and triage answers saved in Postgres for an hour, only the last 6 messages sent, low or no hidden reasoning, and a token log for every call. |
 | **No wasted retries** | Earlier replies are sent back to the model as JSON so it stays in format; a plain-text reply is accepted as the answer instead of paying for a retry. |
 | **No streaming** | The full JSON reply is validated before it's shown. I chose reliability over the appearance of speed. |
 
@@ -100,7 +100,7 @@ Requirements: Node.js 20+, a free Groq API key from https://console.groq.com/key
 ```bash
 npm install
 cp .env.example .env.local   # paste your GROQ_API_KEY and DATABASE_URL
-npm run db:setup              # creates the workspaces table
+npm run db:setup              # creates the workspaces and saved_answers tables
 npm run dev                   # http://localhost:3000
 ```
 
@@ -124,7 +124,7 @@ Optional environment variables: `CHAT_MODEL`, `CHAT_FALLBACK_MODELS`, `TRIAGE_MO
 
 ## Testing
 
-- **Unit tests** (`npm test`, 39 tests) cover the business rules (prices, plan limits, invite expiry, the refund window, renewals, scheduled downgrades and cancellations), the rate limiter, the cache, built-in replies, request/response validation, vector search and FAQ-index freshness, the handoff thresholds, and the server-side action rules: unknown actions, invalid arguments and faked plans are rejected, and demo workspaces are size-capped.
+- **Unit tests** (`npm test`, 38 tests) cover the business rules (prices, plan limits, invite expiry, the refund window, renewals, scheduled downgrades and cancellations), the rate limiter, question normalisation, built-in replies, request/response validation, vector search and FAQ-index freshness, the handoff thresholds, and the server-side action rules: unknown actions, invalid arguments and faked plans are rejected, and demo workspaces are size-capped.
 - **Database end to end** (headless Chrome against the real Neon database): the session cookie is HttpOnly and invisible to page scripts; changes survive a reload; a second visitor gets their own workspace and can't see the first one's; the assistant reads the plan from the database and ignores a faked "Business" plan in the request.
 - **Retrieval eval** (`npm run eval:retrieval`): 32 labelled questions including paraphrases, plan-limit questions, follow-ups and out-of-scope questions. At the chosen threshold: **96% hit@1, 100% recall@3**, ~2 FAQs per prompt.
 
@@ -172,13 +172,13 @@ src/
     ├── prompts.ts                # System prompts and customer-context block
     ├── faqs.ts                   # Knowledge base, with deep links into the app
     ├── schemas.ts                # zod schemas for requests and model output
-    ├── rateLimit.ts, cache.ts    # Per-IP rate limiter, TTL cache
+    ├── rateLimit.ts, questions.ts # Per-IP rate limiter, question normalisation
     ├── quickReplies.ts           # Replies that need no model call
     ├── handoff.ts                # When "Talk to a human" is offered (7/8/10 replies by urgency)
     ├── rag/                      # Embeddings, chunking, FAQ vector index, vector search, retrieval
     └── orbit/                    # model.ts: plans, limits, billing rules · actions.ts: every change, validated (pure, unit-tested)
 db/
-└── schema.sql                    # The workspaces table
+└── schema.sql                    # The workspaces and saved_answers tables
 scripts/
 ├── build-faq-index.mts           # Ingestion: embed FAQs → faq-index.json
 ├── eval-retrieval.mts            # Retrieval eval and threshold sweep
@@ -189,8 +189,8 @@ scripts/
 ## Known limitations
 
 - **Anonymous sessions, not real accounts.** Each browser gets its own demo workspace for 7 days. Real sign-in (e.g. Auth.js) would replace the random cookie with a user ID; the rest of the design stays the same.
-- **One JSON document per workspace.** Simple and fast for a demo; a production schema would use separate tables (projects, tasks, invoices…) with foreign keys. Chat history still lives in the browser's `sessionStorage`.
-- **In-memory rate limiter and cache.** On serverless hosting each instance has its own copy. Production would use a shared store such as Redis.
+- **One JSON document per workspace.** Simple and fast for a demo; a production schema would use separate tables (projects, tasks, invoices…) with foreign keys. Chat history lives in the browser's `localStorage` (kept until the user deletes it), not the database: visitors are anonymous, so it would be tied to one browser either way.
+- **In-memory rate limiter.** On serverless hosting each instance has its own copy. Production would use a shared store such as Redis. (Saved answers are shared: they live in Postgres.)
 - **Embedding cold start.** The first request on a new server instance downloads the 23 MB model (~2 s extra). Bundling the model file or using an embedding API would remove that.
 - **Small knowledge base.** Retrieval is evaluated on 10 FAQs. A large help centre would need longer articles split into chunks, a vector database, and possibly re-ranking.
 - **Triage sees only the message itself,** not the conversation, so a vague follow-up can be classified as "Other".
